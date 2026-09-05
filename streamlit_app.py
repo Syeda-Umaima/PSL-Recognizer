@@ -7,13 +7,13 @@ from pathlib import Path
 
 import av
 import cv2
+import mediapipe as mp
 import numpy as np
 import streamlit as st
 from scipy.interpolate import interp1d
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
 from mediapipe.tasks.python.core import base_options
 from mediapipe.tasks.python.vision import holistic_landmarker
-from mediapipe.tasks.python.vision.core import image as mp_image
 from mediapipe.tasks.python.vision.core import vision_task_running_mode
 
 from pipeline_contract import extract_vector_from_result, mediapipe_rgb, HandLandmarkImputer
@@ -85,7 +85,7 @@ class CaptureController:
         bgr = frame.to_ndarray(format="bgr24")
         prepared = cv2.resize(mediapipe_rgb(bgr), (720, 405), interpolation=cv2.INTER_AREA)
         prepared = np.ascontiguousarray(prepared)
-        result = self._get_detector().detect(mp_image.Image(mp_image.ImageFormat.SRGB, prepared))
+        result = self._get_detector().detect(mp.Image(mp.ImageFormat.SRGB, prepared))
         vector, counts = extract_vector_from_result(result)
         vector = self.imputer.apply(vector, counts)
         with self.lock:
