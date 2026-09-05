@@ -11,6 +11,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 from scipy.interpolate import interp1d
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
 
@@ -27,6 +28,7 @@ HAND_CONNECTIONS = (
     (15, 16), (13, 17), (17, 18), (18, 19), (19, 20), (0, 17),
 )
 POSE_CONNECTIONS = ((11, 12), (11, 13), (13, 15), (12, 14), (14, 16), (11, 23), (12, 24), (23, 24), (23, 25), (25, 27), (24, 26), (26, 28))
+FACE_CONNECTIONS = tuple(mp.solutions.face_mesh.FACEMESH_CONTOURS)
 
 
 def landmark_points(result, name: str):
@@ -52,9 +54,10 @@ def draw_landmarks(frame: np.ndarray, result) -> np.ndarray:
         ("right_hand_landmarks", HAND_CONNECTIONS, (0, 255, 0), 5),
         ("left_hand_landmarks", HAND_CONNECTIONS, (255, 80, 0), 5),
         ("pose_landmarks", POSE_CONNECTIONS, (0, 0, 255), 4),
+        ("face_landmarks", FACE_CONNECTIONS, (255, 255, 0), 2),
     ):
         points = landmark_points(result, attr)
-        pixels = [(int(np.clip(p.x, 0, 1) * (width - 1)), int(np.clip(p.y, 0, 1) * (height - 1))) for p in points]
+        pixels = [(int((1.0 - np.clip(p.x, 0, 1)) * (width - 1)), int(np.clip(p.y, 0, 1) * (height - 1))) for p in points]
         for first, second in links:
             if first < len(pixels) and second < len(pixels):
                 cv2.line(output, pixels[first], pixels[second], color, 2, cv2.LINE_AA)
@@ -106,10 +109,14 @@ class CaptureController:
         result = self._get_detector().process(prepared)
         vector, counts = extract_vector_from_result(contract_result(result))
         vector = self.imputer.apply(vector, counts)
+        annotated = draw_landmarks(cv2.flip(cv2.cvtColor(prepared, cv2.COLOR_RGB2BGR), 1), result)
         with self.lock:
             if self.recording:
                 self.frames.append(vector.copy())
-        annotated = draw_landmarks(cv2.cvtColor(prepared, cv2.COLOR_RGB2BGR), result)
+                cv2.circle(annotated, (28, 30), 10, (0, 0, 255), -1, cv2.LINE_AA)
+                cv2.putText(annotated, f"RECORDING  Frames: {len(self.frames)}", (48, 37), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2, cv2.LINE_AA)
+            else:
+                cv2.putText(annotated, "IDLE  Press Start Recording", (16, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
         return av.VideoFrame.from_ndarray(annotated, format="bgr24")
 
 
@@ -144,6 +151,23 @@ def predict(frames: np.ndarray) -> str:
     return "\n".join(lines) + f"\n\nProcessed {len(frames)} captured frames and resampled to {TARGET_FRAMES}."
 
 
+def speak_word(result: str) -> None:
+    first_line = result.splitlines()[0] if result else ""
+    word = first_line.split(". ", 1)[-1].rsplit(" (", 1)[0].strip()
+    if not word or word.startswith(("No prediction", "Prediction error")):
+        return
+    components.html(
+        f"""<script>
+        const text = {json.dumps(word)};
+        if (window.speechSynthesis) {{
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        }}
+        </script>""",
+        height=0,
+    )
+
+
 st.set_page_config(page_title="PSL Isolated Recognition", page_icon="🤟", layout="wide")
 st.title("Pakistani Sign Language: Isolated Sign Recognition")
 st.caption("Use Start Recording, perform one isolated sign, then press Stop and Predict.")
@@ -174,10 +198,14 @@ with right:
         else:
             try:
                 st.session_state.prediction = predict(frames)
+                st.session_state.speak = True
             except Exception as exc:
                 st.session_state.prediction = f"Prediction error: {type(exc).__name__}: {exc}"
+                st.session_state.speak = False
         st.rerun()
 
 status = "RECORDING" if controller.recording else "IDLE"
 st.info(f"Status: {status} | Captured frames: {len(controller.frames)}")
 st.text_area("Prediction", value=st.session_state.prediction, height=170, disabled=True)
+if st.session_state.pop("speak", False):
+    speak_word(st.session_state.prediction)
