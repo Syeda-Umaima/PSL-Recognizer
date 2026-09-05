@@ -12,9 +12,6 @@ import numpy as np
 import streamlit as st
 from scipy.interpolate import interp1d
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
-from mediapipe.tasks.python.core import base_options
-from mediapipe.tasks.python.vision import holistic_landmarker
-from mediapipe.tasks.python.vision.core import vision_task_running_mode
 
 from pipeline_contract import extract_vector_from_result, mediapipe_rgb, HandLandmarkImputer
 
@@ -60,19 +57,18 @@ class CaptureController:
 
     def _get_detector(self):
         if self.detector is None:
-            options = holistic_landmarker.HolisticLandmarkerOptions(
-                base_options=base_options.BaseOptions(
-                    model_asset_path=str(HOLISTIC_MODEL),
-                    delegate=base_options.BaseOptions.Delegate.CPU,
-                ),
-                running_mode=vision_task_running_mode.VisionTaskRunningMode.IMAGE,
-                min_face_landmarks_confidence=0.4,
-                min_pose_landmarks_confidence=0.4,
-                min_hand_landmarks_confidence=0.4,
-                output_face_blendshapes=False,
-                output_segmentation_mask=False,
+            # The Tasks Holistic graph attempts EGL initialization in some
+            # headless Streamlit workers and aborts on an empty packet. The
+            # legacy CPU graph avoids that native crash while returning the
+            # same pose/hand landmark groups used by our feature contract.
+            self.detector = mp.solutions.holistic.Holistic(
+                static_image_mode=False,
+                model_complexity=1,
+                enable_segmentation=False,
+                refine_face_landmarks=False,
+                min_detection_confidence=0.4,
+                min_tracking_confidence=0.4,
             )
-            self.detector = holistic_landmarker.HolisticLandmarker.create_from_options(options)
         return self.detector
 
     def start(self) -> None:
@@ -90,7 +86,7 @@ class CaptureController:
         bgr = frame.to_ndarray(format="bgr24")
         prepared = cv2.resize(mediapipe_rgb(bgr), (720, 405), interpolation=cv2.INTER_AREA)
         prepared = np.ascontiguousarray(prepared)
-        result = self._get_detector().detect(mp.Image(mp.ImageFormat.SRGB, prepared))
+        result = self._get_detector().process(prepared)
         vector, counts = extract_vector_from_result(result)
         vector = self.imputer.apply(vector, counts)
         with self.lock:
