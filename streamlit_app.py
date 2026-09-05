@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import threading
+from types import SimpleNamespace
 from pathlib import Path
 
 import av
@@ -28,6 +29,22 @@ HAND_CONNECTIONS = (
 POSE_CONNECTIONS = ((11, 12), (11, 13), (13, 15), (12, 14), (14, 16), (11, 23), (12, 24), (23, 24), (23, 25), (25, 27), (24, 26), (26, 28))
 
 
+def landmark_points(result, name: str):
+    value = getattr(result, name, None)
+    if value is None:
+        return []
+    return list(getattr(value, "landmark", value) or [])
+
+
+def contract_result(result):
+    return SimpleNamespace(
+        right_hand_landmarks=landmark_points(result, "right_hand_landmarks"),
+        left_hand_landmarks=landmark_points(result, "left_hand_landmarks"),
+        pose_landmarks=landmark_points(result, "pose_landmarks"),
+        face_landmarks=landmark_points(result, "face_landmarks"),
+    )
+
+
 def draw_landmarks(frame: np.ndarray, result) -> np.ndarray:
     output = np.ascontiguousarray(frame.copy())
     height, width = output.shape[:2]
@@ -36,7 +53,7 @@ def draw_landmarks(frame: np.ndarray, result) -> np.ndarray:
         ("left_hand_landmarks", HAND_CONNECTIONS, (255, 80, 0), 5),
         ("pose_landmarks", POSE_CONNECTIONS, (0, 0, 255), 4),
     ):
-        points = getattr(result, attr, None) or []
+        points = landmark_points(result, attr)
         pixels = [(int(np.clip(p.x, 0, 1) * (width - 1)), int(np.clip(p.y, 0, 1) * (height - 1))) for p in points]
         for first, second in links:
             if first < len(pixels) and second < len(pixels):
@@ -87,7 +104,7 @@ class CaptureController:
         prepared = cv2.resize(mediapipe_rgb(bgr), (720, 405), interpolation=cv2.INTER_AREA)
         prepared = np.ascontiguousarray(prepared)
         result = self._get_detector().process(prepared)
-        vector, counts = extract_vector_from_result(result)
+        vector, counts = extract_vector_from_result(contract_result(result))
         vector = self.imputer.apply(vector, counts)
         with self.lock:
             if self.recording:
