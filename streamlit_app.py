@@ -61,11 +61,16 @@ class CaptureController:
     def _get_detector(self):
         if self.detector is None:
             options = holistic_landmarker.HolisticLandmarkerOptions(
-                base_options=base_options.BaseOptions(model_asset_path=str(HOLISTIC_MODEL)),
+                base_options=base_options.BaseOptions(
+                    model_asset_path=str(HOLISTIC_MODEL),
+                    delegate=base_options.BaseOptions.Delegate.CPU,
+                ),
                 running_mode=vision_task_running_mode.VisionTaskRunningMode.IMAGE,
                 min_face_landmarks_confidence=0.4,
                 min_pose_landmarks_confidence=0.4,
                 min_hand_landmarks_confidence=0.4,
+                output_face_blendshapes=False,
+                output_segmentation_mask=False,
             )
             self.detector = holistic_landmarker.HolisticLandmarker.create_from_options(options)
         return self.detector
@@ -139,7 +144,7 @@ webrtc_streamer(
     mode=WebRtcMode.SENDRECV,
     video_frame_callback=controller.process,
     media_stream_constraints={"video": True, "audio": False},
-    async_processing=True,
+    async_processing=False,
 )
 
 left, right = st.columns(2)
