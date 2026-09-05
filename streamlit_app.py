@@ -9,7 +9,6 @@ import av
 import cv2
 import numpy as np
 import streamlit as st
-import tensorflow as tf
 from scipy.interpolate import interp1d
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
 from mediapipe.tasks.python.core import base_options
@@ -109,6 +108,7 @@ def resample_sequence(sequence: np.ndarray) -> np.ndarray:
 
 @st.cache_resource
 def load_model():
+    import tensorflow as tf
     return tf.keras.models.load_model(MODEL_PATH, compile=False)
 
 
